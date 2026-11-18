@@ -8,6 +8,10 @@ export interface Regole {
   CFG_DEFAULT: Cfg;
   valida(s: string): boolean;
   aggiungi(s: string, n: number): string;
+  mesiPiu(s: string, n: number): string;
+  dataInizio(nascita: string): string;
+  dataFine(nascita: string): string;
+  idoneo(nascita: string, data: string): "" | "piccolo" | "grande";
   diff(a: string, b: string): number;
   dow(s: string): number;
   isSabato(s: string): boolean;

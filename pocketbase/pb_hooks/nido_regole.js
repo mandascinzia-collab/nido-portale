@@ -33,6 +33,24 @@
     return d.getUTCFullYear() + "-" + p2(d.getUTCMonth() + 1) + "-" + p2(d.getUTCDate());
   };
   R.aggiungi = function (s, n) { return R.fmt(R.ms(s) + n * 86400000); };
+  // Somma n mesi a una data (se il giorno non esiste nel mese di arrivo, usa l'ultimo giorno del mese: 29/2 + 12 mesi = 28/2).
+  R.mesiPiu = function (s, n) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    var tot = (+m[1]) * 12 + (+m[2] - 1) + n, y = Math.floor(tot / 12), mo = tot % 12;
+    var ultimo = new Date(Date.UTC(y, mo + 1, 0)).getUTCDate();
+    return y + "-" + p2(mo + 1) + "-" + p2(Math.min(+m[3], ultimo));
+  };
+  // Età per frequentare: da 18 mesi compiuti fino al giorno prima del 7° compleanno.
+  R.MESI_MIN = 18;
+  R.MESI_MAX = 84;
+  R.dataInizio = function (nascita) { return R.mesiPiu(nascita, R.MESI_MIN); };
+  R.dataFine = function (nascita) { return R.mesiPiu(nascita, R.MESI_MAX); }; // primo giorno NON più ammesso
+  // "" se può frequentare in quella data, "piccolo" se non ha ancora 18 mesi, "grande" se ha già 7 anni.
+  R.idoneo = function (nascita, data) {
+    if (data < R.dataInizio(nascita)) return "piccolo";
+    if (data >= R.dataFine(nascita)) return "grande";
+    return "";
+  };
   R.diff = function (a, b) { return Math.round((R.ms(b) - R.ms(a)) / 86400000); }; // giorni da a a b
   R.dow = function (s) { return new Date(R.ms(s)).getUTCDay(); };                  // 0 = domenica
   R.isSabato = function (s) { return R.dow(s) === 6; };

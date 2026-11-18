@@ -18,6 +18,8 @@ export default function Registrati({ dopoAccesso }: { dopoAccesso: (me: Me) => v
   const [sito, setSito] = useState(""); // campo trappola, deve restare vuoto
   const [errore, setErrore] = useState("");
   const [attesa, setAttesa] = useState(false);
+  const [avvisi, setAvvisi] = useState<string[]>([]);
+  const [meReg, setMeReg] = useState<Me | null>(null);
 
   const cambiaFiglio = (i: number, k: keyof Fg, v: string) => setFigli(figli.map((f, j) => (j === i ? { ...f, [k]: v } : f)));
   const oggi = new Date().toISOString().slice(0, 10);
@@ -30,10 +32,29 @@ export default function Registrati({ dopoAccesso }: { dopoAccesso: (me: Me) => v
     if (!letta) return setErrore("Per proseguire conferma di aver letto l'informativa.");
     setAttesa(true);
     try {
-      await api.post("/api/nido/registrazione", { email: email.trim(), password: pw, nome, cognome, telefono: tel, figli, consenso: true, sito });
+      const r = await api.post<{ avvisi?: string[] }>("/api/nido/registrazione", { email: email.trim(), password: pw, nome, cognome, telefono: tel, figli, consenso: true, sito });
       await accedi(email.trim(), pw);
-      dopoAccesso(await api.get<Me>("/api/nido/me"));
+      const me = await api.get<Me>("/api/nido/me");
+      if (r && r.avvisi && r.avvisi.length) { setAvvisi(r.avvisi); setMeReg(me); } else dopoAccesso(me);
     } catch (x: any) { setErrore(x.message); } finally { setAttesa(false); }
+  }
+
+  if (meReg) {
+    return (
+      <>
+        <Intestazione />
+        <main className="wrap reg">
+          <h1 className="gr" style={{ marginBottom: 18 }}>Account creato</h1>
+          <section className="sec">
+            <div className="stack">
+              {avvisi.map((a, i) => <div className="avviso" key={i}><span>{a}</span></div>)}
+              <p>Potrai prenotare per lui/lei solo a partire da quella data. Per gli altri bambini e le altre bambine non cambia nulla.</p>
+              <button className="btn pieno largo" type="button" onClick={() => dopoAccesso(meReg)}>Continua <IcoFreccia s={20} c="#fff" /></button>
+            </div>
+          </section>
+        </main>
+      </>
+    );
   }
 
   return (
@@ -68,7 +89,7 @@ export default function Registrati({ dopoAccesso }: { dopoAccesso: (me: Me) => v
 
           <section className="sec">
             <div className="sh"><div className="num">3</div><h2>Bambino/a</h2></div>
-            <p>Lo Spazio gioco è rivolto a bambini e bambine dai 18 mesi ai 6 anni.</p>
+            <p>Lo Spazio gioco è rivolto a bambini e bambine dai 18 mesi ai 6 anni. Si può iscrivere anche chi non ha ancora 18 mesi: potrà prenotare dal compimento del 18° mese.</p>
             {figli.map((f, i) => (
               <div className="figlio" key={i}>
                 <div className="tt">

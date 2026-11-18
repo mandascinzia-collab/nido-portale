@@ -46,7 +46,8 @@ export default function Prenota({ me, esci }: { me: Me; esci: () => void }) {
         const existing = gf.stato !== null;
         const pressed = !!sel[f.id]?.[g.data];
         const motivo = !existing && !pressed && !chiusoPerTutti && g.fase === "fase1" ? R.limite(impegni(f.id, g.data), g.data, cfg) : null;
-        return { f, gf, existing, pressed, blocked: !!motivo, motivo };
+        const eta = !existing && !chiusoPerTutti ? R.idoneo(f.nascita, g.data) : "";
+        return { f, gf, existing, pressed, blocked: !!motivo || !!eta, motivo, eta };
       });
       const existing = sts.length > 0 && sts.every((x) => x.existing);
       const elig = sts.filter((x) => !x.existing && !x.blocked && !chiusoPerTutti);
@@ -64,7 +65,12 @@ export default function Prenota({ me, esci }: { me: Me; esci: () => void }) {
       if (g.chiusa) { badge = "Chiusa"; tono = "grigio"; }
       else if (g.fase === "oggi") { badge = "Non prenotabile"; tono = "grigio"; }
       else if (g.fase === "presto") { badge = "Dal " + ddmm(g.apreIl || g.data); tono = "grigio"; }
-      if (blocked) { const m = sts.find((x) => x.motivo)?.motivo; badge = m ? motivoTesto(m) : "Limite raggiunto"; tono = "grigio"; }
+      if (blocked) {
+        const m = sts.find((x) => x.motivo)?.motivo;
+        const et = sts.find((x) => x.eta);
+        badge = m ? motivoTesto(m) : et ? (et.eta === "piccolo" ? "Dal " + fmtBreve(et.f.dal) : "Oltre i 6 anni") : "Limite raggiunto";
+        tono = "grigio";
+      }
       if (existing) { badge = attesa ? "In lista d'attesa" : "Prenotata"; tono = attesa ? "mioatt" : "mio"; }
 
       const dom = R.diff(cal.oggi, g.data) === 1;
@@ -73,8 +79,10 @@ export default function Prenota({ me, esci }: { me: Me; esci: () => void }) {
       if (piano && g.attesa > 0 && !chiusoPerTutti) orario += " · " + g.attesa + " in coda";
       if (g.nota) orario += " · " + g.nota;
       if (isAll && !blocked && !existing) {
-        const fuori = sts.filter((x) => x.blocked).map((x) => x.f.nome);
+        const fuori = sts.filter((x) => x.blocked && !x.eta).map((x) => x.f.nome);
         if (fuori.length) orario += " · " + elencoNomi(fuori) + " non disponibile (limite raggiunto)";
+        const nonEta = sts.filter((x) => x.eta).map((x) => x.f.nome);
+        if (nonEta.length) orario += " · " + elencoNomi(nonEta) + " non può frequentare in questa data (età)";
       }
 
       const prenPer: string[] = [], attPer: string[] = [];
@@ -132,7 +140,7 @@ export default function Prenota({ me, esci }: { me: Me; esci: () => void }) {
         const dove = fmtBreve(e.data), chi = primo(e.figlio);
         if (e.esito === "prenotata") return { riga: chi + " · " + dove + " · prenotata", ok: true };
         if (e.esito === "attesa") return { riga: chi + " · " + dove + " · in lista d'attesa", ok: true };
-        const motivo = e.esito === "limite" ? "limite raggiunto" : e.esito === "gia" ? "già prenotata" : e.esito === "chiusa" ? "giornata chiusa" : "non prenotabile";
+        const motivo = e.esito === "piccolo" ? "non ha ancora 18 mesi" + (e.dal ? ", dal " + fmtBreve(e.dal) : "") : e.esito === "grande" ? "ha compiuto 7 anni" : e.esito === "limite" ? "limite raggiunto" : e.esito === "gia" ? "già prenotata" : e.esito === "chiusa" ? "giornata chiusa" : "non prenotabile";
         return { riga: chi + " · " + dove + " · non prenotata (" + motivo + ")", ok: false };
       });
       setEsiti(righe); setSel({});
@@ -193,6 +201,8 @@ export default function Prenota({ me, esci }: { me: Me; esci: () => void }) {
                       <span style={{ flex: 1, minWidth: 0 }}>
                         <span className="nm">{f.nome} {f.cognome.charAt(0)}.</span>
                         <span className="sb">{f.eta} · {meseDi(f.id)} di {cfg.maxMese} nel mese</span>
+                        {cal.oggi < f.dal ? <span className="sb">Potrà frequentare dal {fmtLunga(f.dal)}</span> : null}
+                        {cal.oggi < f.fino && R.diff(cal.oggi, f.fino) <= cfg.giorniApertura ? <span className="sb">Potrà frequentare fino al {fmtLunga(R.aggiungi(f.fino, -1))}</span> : null}
                         {n > 0 ? <span className="sl">{n} {n === 1 ? "giornata selezionata" : "giornate selezionate"}</span> : null}
                       </span>
                       {on ? <IcoCheck s={22} c="#1f6b5c" /> : null}

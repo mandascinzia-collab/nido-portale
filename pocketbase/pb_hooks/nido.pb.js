@@ -24,11 +24,13 @@ routerAdd("POST", "/api/nido/registrazione", (e) => {
   if (telefono.replace(/[^0-9]/g, "").length < 6) return err("Inserisci un numero di telefono valido.");
   if (b.consenso !== true) return err("Per proseguire conferma di aver letto l'informativa.");
   if (figli.length === 0) return err("Inserisci almeno un bambino o una bambina.");
-  const fc = [];
+  const fc = [], avvisi = [];
   for (const f of figli) {
     const fn = L.clean(f.nome, 80), fcg = L.clean(f.cognome, 80), fnasc = L.clean(f.nascita, 10);
     if (!fn || !fcg) return err("Inserisci nome e cognome di ogni bambino/a.");
-    if (!R.valida(fnasc) || fnasc > oggi || fnasc < R.aggiungi(oggi, -365 * 12)) return err("Controlla la data di nascita di " + fn + ".");
+    const cn = L.controllaNascita(fnasc, oggi, fn);
+    if (cn.errore) return err(cn.errore);
+    if (cn.avviso) avvisi.push(cn.avviso);
     fc.push({ nome: fn, cognome: fcg, nascita: fnasc });
   }
 
@@ -54,7 +56,7 @@ routerAdd("POST", "/api/nido/registrazione", (e) => {
   } catch (ex) {
     return err("Non è stato possibile creare l'account. Controlla i dati e riprova.");
   }
-  return e.json(200, { ok: true });
+  return e.json(200, { ok: true, avvisi });
 });
 
 // "Password dimenticata": invia il link per sceglierne una nuova (stessa risposta sia che l'email esista o no)
@@ -68,7 +70,7 @@ routerAdd("POST", "/api/nido/password-dimenticata", (e) => {
       L.mail(email, "Reimposta la password · Spazio gioco 0/6",
         "Hai chiesto di reimpostare la password del portale Spazio gioco 0/6.\n\n" +
         "Apri questo link per scegliere una nuova password (vale 2 ore):\n" + L.sitoUrl() + "/#/reimposta/" + token + "\n\n" +
-        "Se non sei stato/a tu, ignora questo messaggio: la tua password non cambia.\n\nSpazio gioco 0/6 – Nido di Quartu Sant'Elena");
+        "Se non sei stato/a tu, ignora questo messaggio: la tua password non cambia." + L.FIRMA);
     } catch (_) { /* email sconosciuta: nessuna differenza nella risposta */ }
   }
   return e.json(200, { ok: true });
@@ -85,7 +87,7 @@ routerAdd("GET", "/api/nido/me", (e) => {
   return e.json(200, {
     utente: { id: u.id, email: u.email(), nome: u.getString("nome"), cognome: u.getString("cognome"), telefono: u.getString("telefono"),
       stato: u.getString("stato"), staff: u.getBool("staff") },
-    figli: figli.map((f) => ({ id: f.id, nome: f.getString("nome"), cognome: f.getString("cognome"), nascita: f.getString("nascita"), eta: L.eta(f.getString("nascita"), ora.oggi) })),
+    figli: figli.map((f) => ({ id: f.id, nome: f.getString("nome"), cognome: f.getString("cognome"), nascita: f.getString("nascita"), eta: L.eta(f.getString("nascita"), ora.oggi), dal: L.R.dataInizio(f.getString("nascita")), fino: L.R.dataFine(f.getString("nascita")) })),
     config: L.cfgPubblica(cfg),
     oggi: ora.oggi,
   });
@@ -164,7 +166,7 @@ routerAdd("POST", "/api/nido/prenota", (e) => {
       try { f = tx.findRecordById("figli", c.figlio); } catch (_) { esiti.push({ data: c.data, figlio: c.figlio, esito: "fuori" }); continue; }
       if (f.getString("famiglia") !== u.id || !f.getBool("attivo")) { esiti.push({ data: c.data, figlio: c.figlio, esito: "fuori" }); continue; }
       const x = L.prenotaUno(tx, cfg, ora, u, f, c.data, { staff: false });
-      esiti.push({ data: c.data, figlio: c.figlio, esito: x.esito, motivo: x.motivo || null });
+      esiti.push({ data: c.data, figlio: c.figlio, esito: x.esito, motivo: x.motivo || null, dal: x.dal || null });
     }
   });
   return e.json(200, { ok: true, esiti });
@@ -203,12 +205,14 @@ routerAdd("POST", "/api/nido/figlio", (e) => {
   const b = e.requestInfo().body || {};
   const nome = L.clean(b.nome, 80), cognome = L.clean(b.cognome, 80), nascita = L.clean(b.nascita, 10);
   const oggi = L.adesso().oggi;
-  if (!nome || !cognome || !L.R.valida(nascita) || nascita > oggi || nascita < L.R.aggiungi(oggi, -365 * 12)) return e.json(400, { ok: false, errore: "Controlla i dati del bambino/a." });
+  if (!nome || !cognome) return e.json(400, { ok: false, errore: "Inserisci nome e cognome del bambino/a." });
+  const cn = L.controllaNascita(nascita, oggi, nome);
+  if (cn.errore) return e.json(400, { ok: false, errore: cn.errore });
   if ($app.countRecords("figli", $dbx.hashExp({ famiglia: e.auth.id, attivo: true })) >= 4) return e.json(400, { ok: false, errore: "Si possono inserire al massimo 4 bambini/e." });
   const r = new Record($app.findCollectionByNameOrId("figli"));
   r.set("famiglia", e.auth.id); r.set("nome", nome); r.set("cognome", cognome); r.set("nascita", nascita); r.set("attivo", true);
   $app.save(r);
-  return e.json(200, { ok: true });
+  return e.json(200, { ok: true, avvisi: cn.avviso ? [cn.avviso] : [] });
 }, $apis.requireAuth("users"));
 
 // ======================= SEGRETERIA =======================
@@ -349,6 +353,57 @@ routerAdd("POST", "/api/nido/staff/giornata", (e) => {
   return e.json(200, { ok: true, assegnati: n });
 }, $apis.requireAuth("users"), soloStaff);
 
+// Chiusure programmate: elenco di tutte le giornate chiuse da oggi in poi (anche oltre i giorni prenotabili)
+routerAdd("GET", "/api/nido/staff/chiusure", (e) => {
+  const L = require(`${__hooks}/nido_lib.js`);
+  const ora = L.adesso();
+  const gs = $app.findRecordsByFilter("giornate", "data >= {:a} && chiusa = true", "data", 1000, 0, { a: ora.oggi });
+  return e.json(200, { oggi: ora.oggi, chiusure: gs.map((g) => {
+    const d = g.getString("data");
+    return { data: d, nota: g.getString("nota"), prenotazioni: $app.countRecords("prenotazioni", $dbx.exp("data = {:d} AND stato != 'annullata'", { d: d })) };
+  }) });
+}, $apis.requireAuth("users"), soloStaff);
+
+// Chiude un periodo (da/a inclusi, domeniche escluse), anche molto in anticipo. Le prenotazioni già fatte non vengono toccate.
+routerAdd("POST", "/api/nido/staff/chiusure", (e) => {
+  const L = require(`${__hooks}/nido_lib.js`);
+  const R = L.R;
+  const b = e.requestInfo().body || {};
+  const da = L.clean(b.da, 10), a = L.clean(b.a || b.da, 10), nota = L.clean(b.nota, 300);
+  const ora = L.adesso();
+  if (!R.valida(da) || !R.valida(a)) return e.json(400, { ok: false, errore: "Date non valide." });
+  if (R.diff(ora.oggi, da) < 0) return e.json(400, { ok: false, errore: "La data di inizio non può essere nel passato." });
+  if (R.diff(da, a) < 0) return e.json(400, { ok: false, errore: "La data finale è prima di quella iniziale." });
+  if (R.diff(da, a) > 400) return e.json(400, { ok: false, errore: "Periodo troppo lungo (massimo 400 giorni)." });
+  let chiuse = 0, conPrenotazioni = 0;
+  for (let d = da; R.diff(d, a) >= 0; d = R.aggiungi(d, 1)) {
+    if (R.isDomenica(d)) continue;
+    let g = L.giornata($app, d);
+    if (!g) { g = new Record($app.findCollectionByNameOrId("giornate")); g.set("data", d); }
+    g.set("chiusa", true);
+    g.set("nota", nota);
+    $app.save(g);
+    chiuse++;
+    if ($app.countRecords("prenotazioni", $dbx.exp("data = {:d} AND stato != 'annullata'", { d: d })) > 0) conPrenotazioni++;
+  }
+  return e.json(200, { ok: true, chiuse, conPrenotazioni });
+}, $apis.requireAuth("users"), soloStaff);
+
+// Riapre una giornata chiusa (resta l'eventuale numero di posti personalizzato; la nota viene tolta)
+routerAdd("POST", "/api/nido/staff/chiusure/riapri", (e) => {
+  const L = require(`${__hooks}/nido_lib.js`);
+  const b = e.requestInfo().body || {};
+  const data = L.clean(b.data, 10);
+  if (!L.R.valida(data)) return e.json(400, { ok: false, errore: "Data non valida." });
+  const g = L.giornata($app, data);
+  if (!g) return e.json(200, { ok: true });
+  g.set("chiusa", false);
+  g.set("nota", "");
+  $app.save(g);
+  const n = L.promuoviDate([data]);
+  return e.json(200, { ok: true, assegnati: n });
+}, $apis.requireAuth("users"), soloStaff);
+
 routerAdd("GET", "/api/nido/staff/famiglie", (e) => {
   const L = require(`${__hooks}/nido_lib.js`);
   const ora = L.adesso();
@@ -372,7 +427,7 @@ routerAdd("POST", "/api/nido/staff/famiglia", (e) => {
   $app.save(u);
   if (stato === "approvato" && prima !== "approvato") {
     L.mail(u.email(), "Account approvato · Spazio gioco 0/6",
-      "Il tuo account è stato approvato: ora puoi prenotare le giornate dello Spazio gioco.\nAccedi qui: " + L.sitoUrl() + "\n\nSpazio gioco 0/6 – Nido di Quartu Sant'Elena");
+      "Il tuo account è stato approvato: ora puoi prenotare le giornate dello Spazio gioco.\nAccedi qui: " + L.sitoUrl() + L.FIRMA);
   }
   return e.json(200, { ok: true });
 }, $apis.requireAuth("users"), soloStaff);

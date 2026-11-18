@@ -59,6 +59,8 @@ function cfgPubblica(c) {
 }
 
 // ---- Email (solo testi minimi: niente nomi di bambini/e) ----
+// Chiusura comune a tutti i messaggi automatici
+const FIRMA = "\n\nQuesto è un messaggio automatico: per informazioni telefona al 389 918 4668 o scrivi a geneattori@gmail.com.\n\nSpazio gioco 0/6 – Nido di Quartu Sant'Elena";
 function sitoUrl() { return ($os.getenv("NIDO_SITE_URL") || "").replace(/\/+$/, ""); }
 
 function mail(to, subject, text) {
@@ -85,7 +87,7 @@ function mailPostoAssegnato(famigliaId, data) {
     mail(u.email(), "Si è liberato un posto · Spazio gioco 0/6",
       "Si è liberato un posto per la giornata di " + dataIt(data) + ".\n" +
       "La prenotazione è già inserita nella tua area personale: " + sitoUrl() + "\n\n" +
-      "Se non puoi più venire, eliminala dalla tua area personale almeno 48 ore prima.\n\nSpazio gioco 0/6 – Nido di Quartu Sant'Elena");
+      "Se non puoi più venire, eliminala dalla tua area personale almeno 48 ore prima." + FIRMA);
   } catch (err) { $app.logger().error("mailPostoAssegnato", "errore", String(err)); }
 }
 
@@ -116,7 +118,7 @@ function giornateNelMese(app, figlioId, data) {
 
 // Esito di una richiesta di prenotazione per UN bambino/a e UNA data.
 // opts.staff = true → inserimento a mano: niente limiti né finestre (solo la data non deve essere passata).
-// Ritorna { esito: "prenotata" | "attesa" | "gia" | "limite" | "chiusa" | "fuori" | "domenica" | "non_aperta", motivo? }
+// Ritorna { esito: "prenotata" | "attesa" | "gia" | "limite" | "chiusa" | "piccolo" | "grande" | "fuori" | "domenica" | "non_aperta", motivo? }
 function prenotaUno(tx, cfg, ora, famiglia, figlio, data, opts) {
   const staff = !!(opts && opts.staff);
   if (!R.valida(data)) return { esito: "fuori" };
@@ -129,6 +131,9 @@ function prenotaUno(tx, cfg, ora, famiglia, figlio, data, opts) {
     if (fase === "presto") return { esito: "non_aperta" };
   }
   if (chiusaGiornata(tx, data)) return { esito: "chiusa" };
+  const idon = R.idoneo(figlio.getString("nascita"), data);
+  if (idon === "piccolo") return { esito: "piccolo", dal: R.dataInizio(figlio.getString("nascita")) };
+  if (idon === "grande") return { esito: "grande" };
 
   const gia = tx.countRecords("prenotazioni", $dbx.exp("figlio = {:f} AND data = {:d} AND stato != 'annullata'", { f: figlio.id, d: data }));
   if (gia > 0) return { esito: "gia" };
@@ -192,10 +197,29 @@ function promuoviDate(date) {
   return assegnati.length;
 }
 
-function eta(nascita, oggi) {
+function mesiEta(nascita, oggi) {
   const a = nascita.split("-").map(Number), b = oggi.split("-").map(Number);
   let mesi = (b[0] - a[0]) * 12 + (b[1] - a[1]);
   if (b[2] < a[2]) mesi--;
+  return mesi;
+}
+
+// All'iscrizione: sotto i 18 mesi si può iscrivere (frequenterà più avanti); da 7 anni in su no.
+// Restituisce { errore } se la data non va bene, altrimenti { avviso } (testo, oppure "").
+function controllaNascita(nascita, oggi, nome) {
+  const chi = nome ? " di " + nome : "";
+  if (!R.valida(nascita) || nascita > oggi) return { errore: "Controlla la data di nascita" + chi + ": la data non è valida." };
+  if (oggi >= R.dataFine(nascita)) return { errore: "La data di nascita" + chi + " indica un'età di 7 anni o più. Lo Spazio gioco è rivolto a bambini e bambine dai 18 mesi ai 6 anni: non è possibile iscrivere " + (nome || "il bambino/a") + "." };
+  return { avviso: avvisoPiccolo(nascita, oggi, nome) };
+}
+
+function avvisoPiccolo(nascita, oggi, nome) {
+  if (oggi >= R.dataInizio(nascita)) return "";
+  return (nome || "Il bambino/a") + " non ha ancora 18 mesi e potrà frequentare il servizio a partire dal " + dataIt(R.dataInizio(nascita)) + " " + R.dataInizio(nascita).slice(0, 4) + ".";
+}
+
+function eta(nascita, oggi) {
+  const mesi = mesiEta(nascita, oggi);
   if (mesi < 24) return mesi + (mesi === 1 ? " mese" : " mesi");
   const anni = Math.floor(mesi / 12);
   return anni + (anni === 1 ? " anno" : " anni");
@@ -203,6 +227,6 @@ function eta(nascita, oggi) {
 
 function nomeFiglio(f) { return f.getString("nome") + " " + f.getString("cognome"); }
 
-module.exports = { R, dataIt, romeNow, adesso, clean, validEmail, impostazioni, cfgPubblica, sitoUrl, mail, mailPostoAssegnato,
+module.exports = { R, FIRMA, dataIt, romeNow, adesso, clean, validEmail, impostazioni, cfgPubblica, sitoUrl, mail, mailPostoAssegnato,
   giornata, postiGiornata, chiusaGiornata, occupati, inAttesa, impegnate, giornateNelMese, prenotaUno, promuovi, inviaAssegnati,
-  promuoviDate, eta, nomeFiglio };
+  promuoviDate, eta, mesiEta, controllaNascita, avvisoPiccolo, nomeFiglio };

@@ -74,6 +74,12 @@ r = await registra("corta@test.it", "A", "B", [kid("X", "Y")]); assert.equal(r.s
 r = await api("POST", "/api/nido/registrazione", { email: "nc@test.it", password: PASS, nome: "A", cognome: "B", telefono: "3331234567", consenso: false, figli: [kid("X", "Y")] });
 assert.equal(r.s, 400); ok("senza conferma dell'informativa non si registra");
 r = await registra("fut@test.it", "A", "B", [kid("X", "Y", "2030-01-01")]); assert.equal(r.s, 400); ok("data di nascita futura rifiutata");
+{
+  const dd = (m) => { const d = new Date("2026-11-16T12:00:00Z"); d.setUTCMonth(d.getUTCMonth() - m); d.setUTCDate(d.getUTCDate() - 2); return d.toISOString().slice(0, 10); };
+  r = await registra("grande@test.it", "A", "B", [kid("Enrico", "Y", "2004-05-10")]); assert.equal(r.s, 400); assert.match(r.j.errore, /7 anni o più/); assert.match(r.j.errore, /18 mesi ai 6 anni/); ok("iscrizione rifiutata dai 7 anni in su (messaggio chiaro)");
+  r = await registra("sette@test.it", "A", "B", [kid("Gran", "Y", dd(85))]); assert.equal(r.s, 400); ok("7 anni e 1 mese rifiutato/a");
+  r = await registra("neonato@test.it", "A", "B", [kid("Tommaso", "Y", dd(3))]); assert.equal(r.s, 200); assert.equal(r.j.avvisi.length, 1); assert.match(r.j.avvisi[0], /Tommaso non ha ancora 18 mesi e potrà frequentare il servizio a partire dal/); ok("sotto i 18 mesi: iscrizione consentita con avviso e data di inizio");
+}
 
 const famiglie = {};
 for (const [k, nome, figli] of [["a", "Marta", [kid("Giulia", "Mura", "2024-05-01"), kid("Tommaso", "Mura", "2022-02-01")]], ["b", "Paolo", [kid("Sofia", "Cocco")]], ["c", "Elena", [kid("Leonardo", "Pinna")]]]) {
@@ -104,9 +110,9 @@ const esito = (res, data, figlio) => res.j.esiti.find((x) => x.data === data && 
 
 console.log("Approvazione della Segreteria");
 r = await prenota(T.a, [{ data: D(12, "01"), figli: [me.a.figli[0].id] }]); assert.equal(r.s, 403); ok("account non approvato: non può prenotare");
-r = await api("GET", "/api/nido/staff/riepilogo", null, STAFF); assert.equal(r.s, 200, JSON.stringify(r.j)); assert.equal(r.j.kpi.daApprovare, 4);
+r = await api("GET", "/api/nido/staff/riepilogo", null, STAFF); assert.equal(r.s, 200, JSON.stringify(r.j)); assert.equal(r.j.kpi.daApprovare, 5);
 const elenco = (await api("GET", "/api/nido/staff/famiglie", null, STAFF)).j.famiglie;
-assert.equal(elenco.length, 4);
+assert.equal(elenco.length, 5);
 const n0 = posta.length;
 for (const f of elenco) {
   if (f.email === "corta@test.it") { r = await api("POST", "/api/nido/staff/famiglia", { id: f.id, stato: "rifiutato" }, STAFF); continue; }
@@ -208,6 +214,17 @@ r = await api("POST", "/api/nido/staff/giornata", { data: D(11, 24), chiusa: tru
 r = await prenota(T.c, [{ data: D(11, 24), figli: [LEO] }]); assert.equal(esito(r, D(11, 24), LEO).esito, "chiusa"); ok("giornata chiusa dalla Segreteria: non prenotabile");
 r = await api("GET", "/api/nido/staff/impostazioni", null, STAFF); assert.equal(r.j.posti, 15);
 
+console.log("Chiusure programmate");
+r = await api("POST", "/api/nido/staff/chiusure", { da: "2027-01-04", a: "2027-01-10", nota: "Vacanze di Natale" }, STAFF);
+assert.equal(r.s, 200, JSON.stringify(r.j)); assert.equal(r.j.chiuse, 6, "7 giorni meno la domenica"); ok("chiusura di un periodo molto in anticipo (domeniche saltate)");
+r = await api("GET", "/api/nido/staff/chiusure", null, STAFF);
+assert.ok(r.j.chiusure.some((c) => c.data === "2027-01-06" && c.nota === "Vacanze di Natale")); assert.ok(!r.j.chiusure.some((c) => c.data === "2027-01-10")); ok("elenco delle chiusure programmate");
+r = await api("POST", "/api/nido/staff/chiusure", { da: "2026-11-10", a: "2026-11-12" }, STAFF); assert.equal(r.s, 400); ok("non si chiude nel passato");
+r = await api("POST", "/api/nido/staff/chiusure", { da: "2027-02-10", a: "2027-02-01" }, STAFF); assert.equal(r.s, 400); ok("periodo con date invertite rifiutato");
+r = await api("POST", "/api/nido/staff/chiusure", { da: "2027-01-04", a: "2027-01-04" }, T.c); assert.ok(r.s === 403 || r.s === 401 || r.s === 404, "solo la Segreteria: " + r.s); ok("le famiglie non possono chiudere giornate");
+r = await api("POST", "/api/nido/staff/chiusure/riapri", { data: "2027-01-06" }, STAFF); assert.equal(r.s, 200);
+r = await api("GET", "/api/nido/staff/chiusure", null, STAFF); assert.ok(!r.j.chiusure.some((c) => c.data === "2027-01-06")); ok("riapertura di una giornata");
+
 console.log("Password dimenticata");
 const np = posta.length;
 r = await api("POST", "/api/nido/password-dimenticata", { email: "nessuno@test.it" }); assert.equal(r.s, 200);
@@ -224,6 +241,19 @@ r = await api("POST", "/api/collections/users/auth-with-password", { identity: "
 console.log("Aggiunta di un altro bambino/a");
 r = await api("POST", "/api/nido/figlio", { nome: "Nuovo", cognome: "Pinna", nascita: "2023-06-01" }, T.c); assert.equal(r.s, 200);
 assert.equal((await api("GET", "/api/nido/me", null, T.c)).j.figli.length, 2); ok("figlio/a aggiunto/a");
+
+console.log("Età per frequentare");
+r = await api("POST", "/api/nido/figlio", { nome: "Pulcino", cognome: "Pinna", nascita: "2025-06-02" }, T.c); assert.equal(r.s, 200); assert.equal(r.j.avvisi.length, 1); assert.match(r.j.avvisi[0], /2 dicembre 2026/);
+r = await api("POST", "/api/nido/figlio", { nome: "Grandino", cognome: "Pinna", nascita: "2019-12-04" }, T.c); assert.equal(r.s, 200); assert.deepEqual(r.j.avvisi, []);
+r = await api("POST", "/api/nido/figlio", { nome: "Troppo", cognome: "Grande", nascita: "2019-11-10" }, T.c); assert.equal(r.s, 400); assert.match(r.j.errore, /7 anni o più/); ok("aggiunta: sotto 18 mesi con avviso, 7 anni o più rifiutato");
+const mc = (await api("GET", "/api/nido/me", null, T.c)).j.figli;
+const pul = mc.find((x) => x.nome === "Pulcino"), gra = mc.find((x) => x.nome === "Grandino");
+assert.equal(pul.dal, "2026-12-02"); assert.equal(gra.fino, "2026-12-04");
+r = await prenota(T.c, [{ data: "2026-12-01", figli: [pul.id] }]); assert.equal(esito(r, "2026-12-01", pul.id).esito, "piccolo"); assert.equal(esito(r, "2026-12-01", pul.id).dal, "2026-12-02");
+r = await prenota(T.c, [{ data: "2026-12-02", figli: [pul.id] }]); assert.equal(esito(r, "2026-12-02", pul.id).esito, "prenotata"); ok("prenotazione prima dei 18 mesi bloccata, dal giorno del 18° mese consentita");
+r = await prenota(T.c, [{ data: "2026-12-03", figli: [gra.id] }]); assert.equal(esito(r, "2026-12-03", gra.id).esito, "prenotata");
+r = await prenota(T.c, [{ data: "2026-12-04", figli: [gra.id] }]); assert.equal(esito(r, "2026-12-04", gra.id).esito, "grande"); ok("prenotazione dal 7° compleanno in poi bloccata, il giorno prima consentita");
+r = await api("POST", "/api/nido/staff/aggiungi", { figlio: pul.id, data: "2026-12-01" }, STAFF); assert.equal(r.j.esito, "piccolo"); ok("anche la Segreteria non può inserire fuori età");
 
 console.log("Limite alle richieste ripetute");
 r = await api("PATCH", "/api/settings", { rateLimits: { enabled: true } }, SU); assert.equal(r.s, 200);

@@ -348,7 +348,69 @@ function Impostazioni({ ricarica }: { ricarica: () => Promise<void> }) {
         </form>
         <p className="piccolo" style={{ marginTop: 18 }}>Il testo della pagina «Come funziona» si aggiorna da solo con questi valori.</p>
       </section>
+      <ChiusureProgrammate ricarica={ricarica} />
     </>
+  );
+}
+
+interface Chiusura { data: string; nota: string; prenotazioni: number }
+
+// Chiusure (festivi, ponti, vacanze) impostabili anche molto in anticipo, oltre i giorni prenotabili dalle famiglie.
+function ChiusureProgrammate({ ricarica }: { ricarica: () => Promise<void> }) {
+  const [oggi, setOggi] = useState("");
+  const [elenco, setElenco] = useState<Chiusura[] | null>(null);
+  const [da, setDa] = useState("");
+  const [a, setA] = useState("");
+  const [nota, setNota] = useState("");
+  const [msg, setMsg] = useState("");
+  const [occupato, setOccupato] = useState(false);
+  const carica = useCallback(async () => {
+    try { const r = await api.get<{ oggi: string; chiusure: Chiusura[] }>("/api/nido/staff/chiusure"); setOggi(r.oggi); setElenco(r.chiusure); } catch (x: any) { setMsg(x.message); }
+  }, []);
+  useEffect(() => { carica(); }, [carica]);
+
+  async function chiudi(e: React.FormEvent) {
+    e.preventDefault();
+    if (!da) { setMsg("Scegli il primo giorno di chiusura."); return; }
+    setOccupato(true);
+    try {
+      const r = await api.post<{ chiuse: number; conPrenotazioni: number }>("/api/nido/staff/chiusure", { da, a: a || da, nota });
+      setMsg(r.chiuse + (r.chiuse === 1 ? " giornata chiusa." : " giornate chiuse.") + (r.conPrenotazioni > 0 ? " Attenzione: " + r.conPrenotazioni + (r.conPrenotazioni === 1 ? " di queste ha" : " di queste hanno") + " già prenotazioni, che restano valide: avvisa le famiglie." : " Le domeniche sono escluse."));
+      setDa(""); setA(""); setNota("");
+      await carica(); await ricarica();
+    } catch (x: any) { setMsg(x.message); } finally { setOccupato(false); }
+  }
+  async function riapri(d: string) {
+    try { await api.post("/api/nido/staff/chiusure/riapri", { data: d }); setMsg(fmtMaiusc(fmtGiorno(d)) + ": giornata riaperta."); await carica(); await ricarica(); } catch (x: any) { setMsg(x.message); }
+  }
+
+  return (
+    <section className="sec" style={{ marginTop: 24 }}>
+      <h2>Chiusure programmate</h2>
+      <p>Imposta in anticipo i giorni in cui il servizio è chiuso (festivi, ponti, vacanze). Le famiglie vedono la chiusura, con la tua nota, quando quel giorno entra nel periodo prenotabile. Le domeniche sono escluse.</p>
+      <form onSubmit={chiudi}>
+        <div className="imp">
+          <label className="f"><span>Dal</span><input className="c" type="date" min={oggi} value={da} onChange={(e) => { setDa(e.target.value); if (!a || a < e.target.value) setA(e.target.value); }} /></label>
+          <label className="f"><span>Al (incluso)</span><input className="c" type="date" min={da || oggi} value={a} onChange={(e) => setA(e.target.value)} /></label>
+          <label className="f"><span>Nota (la vedono le famiglie)</span><input className="c" type="text" maxLength={300} placeholder="Es. Vacanze di Natale" value={nota} onChange={(e) => setNota(e.target.value)} /></label>
+        </div>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <button className="btn pieno" type="submit" disabled={occupato}>Chiudi questi giorni</button>
+          {msg ? <span className="piccolo" role="status">{msg}</span> : null}
+        </div>
+      </form>
+      <h3 style={{ marginTop: 22, fontSize: 18, fontWeight: 800 }}>Giornate chiuse da oggi in poi</h3>
+      {elenco === null ? <p className="piccolo">Un momento…</p> : elenco.length === 0 ? <p className="piccolo">Nessuna chiusura programmata.</p> : (
+        <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0" }}>
+          {elenco.map((c) => (
+            <li key={c.data} style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", padding: "10px 0", borderTop: "1px solid var(--linea, #e6dfd2)" }}>
+              <span><b>{fmtMaiusc(fmtGiorno(c.data))} {c.data.slice(0, 4)}</b>{c.nota ? " · " + c.nota : ""}{c.prenotazioni > 0 ? " · " + c.prenotazioni + (c.prenotazioni === 1 ? " prenotazione già presente" : " prenotazioni già presenti") : ""}</span>
+              <button className="btn" type="button" onClick={() => riapri(c.data)}>Riapri</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
