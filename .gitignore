@@ -1,0 +1,7 @@
+node_modules/
+web/dist/
+web/src/regole.generated.js
+.env
+.env.local
+pb_data/
+*.log
