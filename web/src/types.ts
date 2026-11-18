@@ -7,7 +7,7 @@ export interface Me { utente: Utente; figli: Figlio[]; config: CfgServer; oggi: 
 export interface GiornoFiglio { id: string; stato: "prenotata" | "attesa" | null; pid: string | null }
 export interface Giorno {
   data: string; tipo: "settimana" | "sabato"; nome: string; inizio: string; fine: string; fase: Fase; apreIl: string | null;
-  chiusa: boolean; nota: string; posti: number; occupati: number; attesa: number; eliminabile: boolean; figli: GiornoFiglio[];
+  chiusa: boolean; nota: string; posti: number; occupati: number; attesa: number; eliminabile: boolean; orarioModificato?: boolean; figli: GiornoFiglio[];
 }
 export interface Calendario { oggi: string; ultimoPrenotabile: string; config: CfgServer; approvato: boolean; giorni: Giorno[]; impegni: Record<string, string[]> }
 export interface Esito { data: string; figlio: string; esito: string; motivo: string | null; dal?: string | null }

@@ -77,10 +77,18 @@
   R.apreIl = function (data, cfg) { return R.aggiungi(data, -cfg.giorniApertura); };
 
   // Ore che mancano all'inizio della giornata. oraMin = minuti dall'inizio di oggi (ora di Roma).
-  R.oreMancanti = function (oggi, oraMin, data) {
-    return (R.diff(oggi, data) * 1440 + R.orario(data).inizioMin - oraMin) / 60;
+  // inizioMin (facoltativo) = ingresso della giornata se è stato cambiato; altrimenti quello standard.
+  R.oreMancanti = function (oggi, oraMin, data, inizioMin) {
+    var ini = typeof inizioMin === "number" ? inizioMin : R.orario(data).inizioMin;
+    return (R.diff(oggi, data) * 1440 + ini - oraMin) / 60;
   };
-  R.eliminabile = function (oggi, oraMin, data, cfg) { return R.oreMancanti(oggi, oraMin, data) >= cfg.oreAnnullo; };
+  R.eliminabile = function (oggi, oraMin, data, cfg, inizioMin) { return R.oreMancanti(oggi, oraMin, data, inizioMin) >= cfg.oreAnnullo; };
+  // "HH:MM" → minuti dalla mezzanotte, oppure -1 se non valido
+  R.minuti = function (t) {
+    var m = /^(\d{2}):(\d{2})$/.exec(t || "");
+    if (!m || +m[1] > 23 || +m[2] > 59) return -1;
+    return +m[1] * 60 + +m[2];
+  };
 
   // Limiti della fase 1, per UN bambino/a.
   //  impegnate = date già prenotate (non in lista d'attesa) dallo stesso bambino/a, esclusa "data".

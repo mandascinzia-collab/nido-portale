@@ -255,6 +255,21 @@ r = await prenota(T.c, [{ data: "2026-12-03", figli: [gra.id] }]); assert.equal(
 r = await prenota(T.c, [{ data: "2026-12-04", figli: [gra.id] }]); assert.equal(esito(r, "2026-12-04", gra.id).esito, "grande"); ok("prenotazione dal 7° compleanno in poi bloccata, il giorno prima consentita");
 r = await api("POST", "/api/nido/staff/aggiungi", { figlio: pul.id, data: "2026-12-01" }, STAFF); assert.equal(r.j.esito, "piccolo"); ok("anche la Segreteria non può inserire fuori età");
 
+console.log("Orario diverso per una giornata");
+{
+  const cal = async () => (await api("GET", "/api/nido/calendario", null, T.c)).j.giorni.find((x) => x.data === "2026-11-18");
+  let g18 = await cal(); assert.equal(g18.inizio, "16:30"); assert.equal(g18.orarioModificato, false); assert.equal(g18.eliminabile, true);
+  r = await api("POST", "/api/nido/staff/giornata", { data: "2026-11-18", chiusa: false, posti: 15, nota: "Nido chiuso", inizio: "08:00", fine: "12:00" }, STAFF); assert.equal(r.s, 200, JSON.stringify(r.j)); assert.equal(r.j.orarioModificato, true);
+  g18 = await cal(); assert.equal(g18.inizio, "08:00"); assert.equal(g18.fine, "12:00"); assert.equal(g18.orarioModificato, true);
+  assert.equal(g18.eliminabile, false); ok("orario cambiato: famiglie lo vedono e il limite delle 48 ore parte dal nuovo ingresso");
+  r = await api("GET", "/api/nido/staff/giornata?data=2026-11-18", null, STAFF); assert.equal(r.j.inizio, "08:00"); assert.equal(r.j.orarioStandard.inizio, "16:30");
+  r = await api("POST", "/api/nido/staff/giornata", { data: "2026-11-18", chiusa: false, posti: 15, nota: "", inizio: "12:00", fine: "08:00" }, STAFF); assert.equal(r.s, 400);
+  r = await api("POST", "/api/nido/staff/giornata", { data: "2026-11-18", chiusa: false, posti: 15, nota: "", inizio: "25:00", fine: "26:00" }, STAFF); assert.equal(r.s, 400); ok("orari non validi rifiutati");
+  r = await api("POST", "/api/nido/staff/giornata", { data: "2026-11-18", chiusa: false, posti: 15, nota: "", inizio: "09:00", fine: "11:00" }, T.c); assert.ok(r.s === 401 || r.s === 403); ok("le famiglie non possono cambiare l'orario");
+  r = await api("POST", "/api/nido/staff/giornata", { data: "2026-11-18", chiusa: false, posti: 15, nota: "", inizio: "16:30", fine: "18:30" }, STAFF); assert.equal(r.s, 200); assert.equal(r.j.orarioModificato, false);
+  g18 = await cal(); assert.equal(g18.inizio, "16:30"); assert.equal(g18.orarioModificato, false); assert.equal(g18.eliminabile, true); ok("orario di solito ripristinato");
+}
+
 console.log("Limite alle richieste ripetute");
 r = await api("PATCH", "/api/settings", { rateLimits: { enabled: true } }, SU); assert.equal(r.s, 200);
 let bloccato = false;

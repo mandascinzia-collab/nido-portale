@@ -77,6 +77,7 @@ export default function Prenota({ me, esci }: { me: Me; esci: () => void }) {
       let orario = g.inizio.replace(/^0/, "") + " – " + g.fine.replace(/^0/, "");
       if (dom && !chiusoPerTutti) orario += " · prenota entro stanotte";
       if (piano && g.attesa > 0 && !chiusoPerTutti) orario += " · " + g.attesa + " in coda";
+      if (g.orarioModificato) orario += " · orario diverso dal solito";
       if (g.nota) orario += " · " + g.nota;
       if (isAll && !blocked && !existing) {
         const fuori = sts.filter((x) => x.blocked && !x.eta).map((x) => x.f.nome);

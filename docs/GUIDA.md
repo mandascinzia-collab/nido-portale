@@ -134,6 +134,8 @@ Da concordare con chi segue la privacy (cooperativa e Comune):
 - **Presenze**: Segreteria → Giornate → scegli «Oggi» → Presente / Assente per ogni bambino/a.
 - **Elenco da stampare / CSV**: pulsanti nella giornata scelta.
 - **Giornata chiusa (festivo) o con meno posti**: in fondo alla giornata, «Impostazioni di questa giornata».
+- **Chiudere giorni in anticipo** (festivi, ponti, vacanze): Segreteria → Impostazioni → **Chiusure programmate**. Scegli «Dal» e «Al» (anche mesi avanti), scrivi una nota e premi **Chiudi questi giorni**; le domeniche vengono saltate. Le famiglie vedono la chiusura quando quel giorno entra nei giorni prenotabili. Le prenotazioni già fatte restano valide (avvisa le famiglie). Per riaprire un giorno: **Riapri** nell'elenco.
+- **Cambiare l'orario di una singola giornata** (per esempio un giorno in cui il nido è chiuso e lo Spazio gioco si svolge al mattino): Segreteria → apri la giornata → **Impostazioni di questa giornata** → scrivi **Ingresso** e **Uscita** → **Salva**. Le famiglie vedono «orario diverso dal solito». Le prenotazioni già fatte restano valide: avvisa tu le famiglie. Il limite delle 48 ore per cancellare parte dal nuovo orario di ingresso. Per tornare all'orario di solito: **Rimetti l'orario di solito** e Salva.
 - **Cambiare i limiti** (posti, giornate a settimana, ecc.): Segreteria → Impostazioni. Il testo di «Come funziona» si aggiorna da solo.
 - **Aggiungere a mano** un bambino o una bambina: pulsante «Aggiungi a mano» (la famiglia deve avere un account).
 

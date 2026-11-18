@@ -123,14 +123,14 @@ routerAdd("GET", "/api/nido/calendario", (e) => {
     const d = R.aggiungi(ora.oggi, i);
     if (d > ultimo) break;
     if (R.isDomenica(d)) continue;
-    const o = R.orario(d), g = ov[d], c = conteggi[d] || { occ: 0, att: 0 };
+    const g = ov[d], o = L.orarioGiorno(d, g), c = conteggi[d] || { occ: 0, att: 0 };
     const fase = R.fase(ora.oggi, d, cfg);
     giorni.push({
-      data: d, tipo: o.tipo, nome: o.nome, inizio: o.inizio, fine: o.fine, fase: fase,
+      data: d, tipo: o.tipo, nome: o.nome, inizio: o.inizio, fine: o.fine, orarioModificato: o.modificato, fase: fase,
       apreIl: fase === "presto" ? R.apreIl(d, cfg) : null,
       chiusa: !!(g && g.getBool("chiusa")), nota: g ? g.getString("nota") : "",
       posti: g && g.getInt("posti") > 0 ? g.getInt("posti") : cfg.posti, occupati: c.occ, attesa: c.att,
-      eliminabile: R.eliminabile(ora.oggi, ora.min, d, cfg),
+      eliminabile: R.eliminabile(ora.oggi, ora.min, d, cfg, o.inizioMin),
       figli: figli.map((f) => { const m = mie[d + "|" + f.id]; return m ? { id: f.id, stato: m.stato, pid: m.id } : { id: f.id, stato: null, pid: null }; }),
     });
   }
@@ -185,7 +185,8 @@ routerAdd("POST", "/api/nido/annulla", (e) => {
     try { p = tx.findRecordById("prenotazioni", id); } catch (_) { esito = [404, "Prenotazione non trovata."]; return; }
     if (p.getString("famiglia") !== e.auth.id || p.getString("stato") === "annullata") { esito = [404, "Prenotazione non trovata."]; return; }
     const data = p.getString("data");
-    if (p.getString("stato") === "prenotata" && !R.eliminabile(ora.oggi, ora.min, data, cfg)) {
+    const og = L.orarioGiorno(data, L.giornata(tx, data));
+    if (p.getString("stato") === "prenotata" && !R.eliminabile(ora.oggi, ora.min, data, cfg, og.inizioMin)) {
       esito = [409, "Non si può più eliminare questa prenotazione: mancano meno di " + cfg.oreAnnullo + " ore. Contatta il Nido."]; return;
     }
     if (p.getString("stato") === "attesa" && R.diff(ora.oggi, data) < 1) { esito = [409, "La giornata è già iniziata o è oggi."]; return; }
@@ -240,8 +241,8 @@ routerAdd("GET", "/api/nido/staff/riepilogo", (e) => {
     const g = ov[d], x = c[d] || { occ: 0, att: 0 };
     const posti = g && g.getInt("posti") > 0 ? g.getInt("posti") : cfg.posti;
     const chiusa = !!(g && g.getBool("chiusa"));
-    const o = R.orario(d);
-    giorni.push({ data: d, tipo: o.tipo, nome: o.nome, inizio: o.inizio, fine: o.fine, fase: R.fase(ora.oggi, d, cfg), posti, occupati: x.occ, attesa: x.att, chiusa, nota: g ? g.getString("nota") : "" });
+    const o = L.orarioGiorno(d, g);
+    giorni.push({ data: d, tipo: o.tipo, nome: o.nome, inizio: o.inizio, fine: o.fine, orarioModificato: o.modificato, fase: R.fase(ora.oggi, d, cfg), posti, occupati: x.occ, attesa: x.att, chiusa, nota: g ? g.getString("nota") : "" });
     if (i <= 7 && !chiusa) { occ7 += x.occ; cap7 += posti; }
     if (x.att > 0) { attesaTot += x.att; giorniAttesa++; }
   }
@@ -278,9 +279,9 @@ routerAdd("GET", "/api/nido/staff/giornata", (e) => {
   const attesa = rs.filter((r) => r.getString("stato") === "attesa").map(riga).sort((a, b) => R.precedenza(a, b));
   const g = L.giornata($app, data);
   const cfg = L.impostazioni($app);
-  const o = R.orario(data);
+  const o = L.orarioGiorno(data, g);
   return e.json(200, {
-    data, nome: o.nome, inizio: o.inizio, fine: o.fine, fase: R.fase(ora.oggi, data, cfg), oggi: ora.oggi,
+    data, nome: o.nome, inizio: o.inizio, fine: o.fine, orarioModificato: o.modificato, orarioStandard: o.standard, fase: R.fase(ora.oggi, data, cfg), oggi: ora.oggi,
     posti: L.postiGiornata($app, data, cfg), chiusa: L.chiusaGiornata($app, data), nota: g ? g.getString("nota") : "",
     iscritti, attesa,
   });
@@ -348,9 +349,20 @@ routerAdd("POST", "/api/nido/staff/giornata", (e) => {
   g.set("chiusa", !!b.chiusa);
   g.set("posti", Math.max(0, Math.min(200, parseInt(b.posti, 10) || 0)));
   g.set("nota", L.clean(b.nota, 300));
+  // Orario diverso per questa giornata (facoltativo). Se coincide con quello standard, torna lo standard.
+  const std = L.R.orario(data);
+  const ini = L.clean(b.inizio, 5), fin = L.clean(b.fine, 5);
+  if (ini || fin) {
+    const mi = L.R.minuti(ini), mf = L.R.minuti(fin);
+    if (mi < 0 || mf < 0) return e.json(400, { ok: false, errore: "Orario non valido: scrivi ingresso e uscita nel formato 16:30." });
+    if (mf <= mi) return e.json(400, { ok: false, errore: "L'uscita deve essere dopo l'ingresso." });
+    if (ini === std.inizio && fin === std.fine) { g.set("inizio", ""); g.set("fine", ""); }
+    else { g.set("inizio", ini); g.set("fine", fin); }
+  } else { g.set("inizio", ""); g.set("fine", ""); }
   $app.save(g);
   const n = L.promuoviDate([data]);
-  return e.json(200, { ok: true, assegnati: n });
+  const conPrenotazioni = $app.countRecords("prenotazioni", $dbx.exp("data = {:d} AND stato != 'annullata'", { d: data }));
+  return e.json(200, { ok: true, assegnati: n, orarioModificato: L.orarioGiorno(data, g).modificato, conPrenotazioni });
 }, $apis.requireAuth("users"), soloStaff);
 
 // Chiusure programmate: elenco di tutte le giornate chiuse da oggi in poi (anche oltre i giorni prenotabili)

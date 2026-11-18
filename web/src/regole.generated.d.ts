@@ -21,8 +21,9 @@ export interface Regole {
   orario(s: string): { tipo: "sabato" | "settimana"; nome: string; inizio: string; fine: string; inizioMin: number };
   fase(oggi: string, data: string, cfg: Cfg): Fase;
   apreIl(data: string, cfg: Cfg): string;
-  oreMancanti(oggi: string, oraMin: number, data: string): number;
-  eliminabile(oggi: string, oraMin: number, data: string, cfg: Cfg): boolean;
+  oreMancanti(oggi: string, oraMin: number, data: string, inizioMin?: number): number;
+  eliminabile(oggi: string, oraMin: number, data: string, cfg: Cfg, inizioMin?: number): boolean;
+  minuti(t: string): number;
   limite(impegnate: string[], data: string, cfg: Cfg): Motivo | null;
   precedenza(a: { mese: number; quando: string }, b: { mese: number; quando: string }): number;
 }

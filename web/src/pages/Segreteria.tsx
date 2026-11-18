@@ -4,10 +4,10 @@ import type { CfgServer, Me } from "../types";
 import { fmtGiorno, fmtLunga, fmtMaiusc } from "../date";
 import { IcoCestino, IcoPiu, Loghi, Modale } from "../ui";
 
-interface GiornoS { data: string; tipo: string; nome: string; inizio: string; fine: string; fase: string; posti: number; occupati: number; attesa: number; chiusa: boolean; nota: string }
+interface GiornoS { data: string; tipo: string; nome: string; inizio: string; fine: string; orarioModificato?: boolean; fase: string; posti: number; occupati: number; attesa: number; chiusa: boolean; nota: string }
 interface Riepilogo { oggi: string; config: CfgServer; giorni: GiornoS[]; kpi: { figliDiversiMese: number; famiglie: number; occupazione7: number; attesaTotale: number; attesaGiorni: number; daApprovare: number } }
 interface Riga { id: string; stato: string; presenza: string; daStaff: boolean; figlio: string; eta: string; genitore: string; telefono: string; email: string; mese: number }
-interface Dettaglio { data: string; nome: string; inizio: string; fine: string; fase: string; oggi: string; posti: number; chiusa: boolean; nota: string; iscritti: Riga[]; attesa: Riga[] }
+interface Dettaglio { data: string; nome: string; inizio: string; fine: string; orarioModificato?: boolean; orarioStandard?: { inizio: string; fine: string }; fase: string; oggi: string; posti: number; chiusa: boolean; nota: string; iscritti: Riga[]; attesa: Riga[] }
 interface Famiglia { id: string; nome: string; email: string; telefono: string; stato: string; creato: string; figli: { id: string; nome: string; eta: string }[] }
 type Scheda = "giornate" | "famiglie" | "impostazioni";
 
@@ -113,7 +113,7 @@ function Giornate({ riep, ricarica, vaiFamiglie }: { riep: Riepilogo; ricarica: 
               <button type="button" key={g.data} className="giorno-b" aria-pressed={data === g.data} onClick={() => setData(g.data)}>
                 <span className="a">
                   <b>{fmtMaiusc(fmtGiorno(g.data))}</b>
-                  <small>{g.tipo === "sabato" ? "Sabato mattina" : "Spazio gioco"} · {orario(g)}</small>
+                  <small>{g.tipo === "sabato" ? "Sabato mattina" : "Spazio gioco"} · {orario(g)}{g.orarioModificato ? " · orario diverso" : ""}</small>
                   <span className={"p" + (g.occupati >= g.posti ? " pieno" : "")}><span style={{ width: Math.min(100, Math.round((g.occupati / g.posti) * 100)) + "%" }} /></span>
                 </span>
                 <span className="b"><b>{g.occupati}/{g.posti}</b><span className={"etichetta " + tono}>{t}</span></span>
@@ -203,18 +203,31 @@ function ImpostaGiornata({ det, fatto }: { det: Dettaglio; fatto: () => Promise<
   const [chiusa, setChiusa] = useState(det.chiusa);
   const [posti, setPosti] = useState(String(det.posti));
   const [nota, setNota] = useState(det.nota);
+  const [ini, setIni] = useState(det.inizio);
+  const [fin, setFin] = useState(det.fine);
   const [msg, setMsg] = useState("");
-  useEffect(() => { setChiusa(det.chiusa); setPosti(String(det.posti)); setNota(det.nota); setMsg(""); }, [det.data, det.chiusa, det.posti, det.nota]);
+  useEffect(() => { setChiusa(det.chiusa); setPosti(String(det.posti)); setNota(det.nota); setIni(det.inizio); setFin(det.fine); setMsg(""); }, [det.data, det.chiusa, det.posti, det.nota, det.inizio, det.fine]);
+  const std = det.orarioStandard;
   async function salva(e: React.FormEvent) {
     e.preventDefault();
-    try { await api.post("/api/nido/staff/giornata", { data: det.data, chiusa, posti: parseInt(posti, 10) || 0, nota }); setMsg("Salvato."); await fatto(); }
-    catch (x: any) { setMsg(x.message); }
+    try {
+      const r = await api.post<{ orarioModificato: boolean; conPrenotazioni: number }>("/api/nido/staff/giornata", { data: det.data, chiusa, posti: parseInt(posti, 10) || 0, nota, inizio: ini, fine: fin });
+      setMsg(r.orarioModificato && r.conPrenotazioni > 0
+        ? "Salvato. Ci sono " + r.conPrenotazioni + " prenotazioni (o richieste in lista d'attesa) per questa giornata: avvisa tu le famiglie del nuovo orario."
+        : "Salvato.");
+      await fatto();
+    } catch (x: any) { setMsg(x.message); }
   }
   return (
     <section className="noprint">
       <h2>Impostazioni di questa giornata</h2>
       <form className="stack" onSubmit={salva} style={{ marginTop: 10 }}>
         <label className="check"><input type="checkbox" checked={chiusa} onChange={(e) => setChiusa(e.target.checked)} /><span>Giornata chiusa (festivo o servizio sospeso): non si può prenotare</span></label>
+        <div className="riga2">
+          <label className="f"><span>Ingresso</span><input className="c" type="time" required value={ini} onChange={(e) => setIni(e.target.value)} /></label>
+          <label className="f"><span>Uscita</span><input className="c" type="time" required value={fin} onChange={(e) => setFin(e.target.value)} /></label>
+        </div>
+        <p className="piccolo" style={{ margin: 0 }}>{det.orarioModificato ? "Orario cambiato per questa giornata. " : ""}{std ? "Orario di solito: " + std.inizio.replace(/^0/, "") + "–" + std.fine.replace(/^0/, "") + ". " : ""}{std && (ini !== std.inizio || fin !== std.fine) ? <button type="button" className="linkbtn" onClick={() => { setIni(std.inizio); setFin(std.fine); }}>Rimetti l'orario di solito</button> : null}</p>
         <div className="riga2">
           <label className="f"><span>Posti disponibili</span><input className="c" type="number" min={1} max={200} value={posti} onChange={(e) => setPosti(e.target.value)} /></label>
           <label className="f"><span>Nota (la vedono le famiglie)</span><input className="c" maxLength={300} value={nota} onChange={(e) => setNota(e.target.value)} /></label>

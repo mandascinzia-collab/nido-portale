@@ -84,14 +84,25 @@ function mail(to, subject, text) {
 function mailPostoAssegnato(famigliaId, data) {
   try {
     const u = $app.findRecordById("users", famigliaId);
+    const og = orarioGiorno(data, giornata($app, data));
     mail(u.email(), "Si è liberato un posto · Spazio gioco 0/6",
-      "Si è liberato un posto per la giornata di " + dataIt(data) + ".\n" +
+      "Si è liberato un posto per la giornata di " + dataIt(data) + (og.modificato ? " (orario: dalle " + og.inizio + " alle " + og.fine + ")" : "") + ".\n" +
       "La prenotazione è già inserita nella tua area personale: " + sitoUrl() + "\n\n" +
       "Se non puoi più venire, eliminala dalla tua area personale almeno 48 ore prima." + FIRMA);
   } catch (err) { $app.logger().error("mailPostoAssegnato", "errore", String(err)); }
 }
 
 // ---- Giornate, posti, prenotazioni ----
+// Orario di una giornata: quello standard, oppure quello cambiato dalla Segreteria per quella data.
+function orarioGiorno(data, g) {
+  const o = R.orario(data);
+  const i = g ? g.getString("inizio") : "", f = g ? g.getString("fine") : "";
+  if (i && f && R.minuti(i) >= 0 && R.minuti(f) > R.minuti(i) && (i !== o.inizio || f !== o.fine)) {
+    return { tipo: o.tipo, nome: o.nome, inizio: i, fine: f, inizioMin: R.minuti(i), modificato: true, standard: { inizio: o.inizio, fine: o.fine } };
+  }
+  return { tipo: o.tipo, nome: o.nome, inizio: o.inizio, fine: o.fine, inizioMin: o.inizioMin, modificato: false, standard: { inizio: o.inizio, fine: o.fine } };
+}
+
 function giornata(app, data) {
   try { return app.findFirstRecordByFilter("giornate", "data = {:d}", { d: data }); } catch (_) { return null; }
 }
@@ -229,4 +240,4 @@ function nomeFiglio(f) { return f.getString("nome") + " " + f.getString("cognome
 
 module.exports = { R, FIRMA, dataIt, romeNow, adesso, clean, validEmail, impostazioni, cfgPubblica, sitoUrl, mail, mailPostoAssegnato,
   giornata, postiGiornata, chiusaGiornata, occupati, inAttesa, impegnate, giornateNelMese, prenotaUno, promuovi, inviaAssegnati,
-  promuoviDate, eta, mesiEta, controllaNascita, avvisoPiccolo, nomeFiglio };
+  promuoviDate, orarioGiorno, eta, mesiEta, controllaNascita, avvisoPiccolo, nomeFiglio };
